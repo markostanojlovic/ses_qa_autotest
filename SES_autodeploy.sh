@@ -1,28 +1,41 @@
 #!/bin/bash
-# TODO: Script info and description 
-# TODO: Script and environment requirements 
+#######################################################################################
+# Description: 	Script for creating VMs and depolying SES5 on them
+# Author:  		Marko Stanojlovic, QA Ceph @ SUSE Enterprise Storage
+# Contact: 		mstanojlovic@suse.com                                         
+# Last update:  23-Aug-2017
+# Usage: 		./SES_autodeploy.sh
+#
+# *** REQUIREMENTS: ***
+# - Script should be run as root 
+# - Directory where are the stored VM images is: $VM_DIR - hardcoded to /VM
+# - TODO: OSD VM disk images 
+# - VM names are $VM_NAME_BASE and incrementing suffix number - hardcoded to "ses5node"
+# - SALT MASTER node is the first VM "ses5node1"
+# - 
+#
+#
+#######################################################################################
 
 BASEDIR=$(pwd)
-
-if [ $# -eq 0 ]
-  then
-    echo "No arguments supplied"
-    exit 255
-fi
+VM_DIR=/VM
+# TODO: Create separate directory for OSD VM images 
 
 sript_start_time=$(date +%s)
 
-inputfile=$1;lin_num=1
+REPO_FILE=${BASEDIR}/exploit/REPO_ISO_URLs
+[[ -r $REPO_FILE ]] || (echo "ERROR: No REPO file."; exit 1)
+lin_num=1
 while read linija;do link[lin_num]=$linija;let lin_num+=1
-done <$inputfile
+done <$REPO_FILE
 
 VM_NAME_BASE='ses5node'
 MASTER=${VM_NAME_BASE}1
 
-VMNET_IP_BASE=192.168.100.
-VM_HYP_DEF_GW=${VMNET_IP_BASE}1 	# VM host net address GW 
+VM_HYP_DEF_GW=$(ip a s dev virbr1|grep inet|awk '{print $2}'| cut -d/ -f1)	# EXAMPLE: 192.168.100.1
+VMNET_IP_BASE=${VM_HYP_DEF_GW%\.*}											# EXAMPLE: 192.168.100
 
-OS_VARIANT=${inputfile:0:9}
+OS_VARIANT=sles12sp3
 os_url1=${link[1]}
 ses_url1=${link[2]}
 #ses_url2=${link[3]}
@@ -44,7 +57,7 @@ else
 fi
 
 VMNET_NAME=$(virsh net-list|grep active|tail -n 1|awk '{print $1}')
-[[ $VMNET_NAME ]] || (echo "Couldn't find vmnet value.";exit 13) # exit if vmnet is empty string 
+[[ $VMNET_NAME ]] || (echo "ERROR: Couldn't find vmnet value.";exit 13) 	# exit if vmnet is empty string 
 
 ###############################
 # Preparing the environment 
@@ -54,6 +67,8 @@ echo "Preparing the environment..."
 echo "Checking if VMs are existing..." 
 NO_VMs=0
 virsh list --all|grep ${VM_NAME_BASE}||NO_VMs=1
+
+# TODO make it to destroy variable number of VMs
 
 if [[ $NO_VMs = 0 ]] 
 then
@@ -78,9 +93,8 @@ fi
 # This should be also requirement for the number of VMs to deploy
 
 # Delete disk images 
-rm /VM/ses5*
-rm /VM-images/ses5*
-ls -la /VM /VM-images
+rm ${VM_DIR}/${VM_NAME_BASE}*
+
 > ~/.ssh/known_hosts
 
 ###############################
@@ -95,7 +109,7 @@ autoyast_seed=${BASEDIR}/exploit/autoyast_${VM_NAME_BASE}.xml
 [[ -r $autoyast_seed ]] || (echo "ERROR: Autoyast file missing. Exiting.";exit 15)
 for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
 do
-xmlfile=/VM/autoyast_${VM_NAME_BASE}${NODE_NUMBER}.xml
+xmlfile=${VM_DIR}/autoyast_${VM_NAME_BASE}${NODE_NUMBER}.xml
 cp $autoyast_seed $xmlfile
 sed -i "s/__ip_default_route__/${VM_HYP_DEF_GW}/" $xmlfile
 sed -i "s/__ip_nameserver__/${VM_HYP_DEF_GW}/" $xmlfile
@@ -105,11 +119,14 @@ sed -i "s|__ses_http_link_1__|${ses_url1}|" $xmlfile
 #sed -i "s|__ses_http_link_2__|${ses_url2}|" $xmlfile
 #sed -i "s|__ses_http_link_3__|${ses_url3}|" $xmlfile
 sed -i "s/ses5hostnameses5/${VM_NAME_BASE}${NODE_NUMBER}/" $xmlfile
-sed -i "s/__VMNET_IP_BASE__xxxxx/${VMNET_IP_BASE}15${NODE_NUMBER}/" $xmlfile 	# 192.168.100.151-5
+sed -i "s/__VMNET_IP_BASE__xxxxx/${VMNET_IP_BASE}.15${NODE_NUMBER}/" $xmlfile
 done
 
-CREATE_VM_SCRIPT=/VM/create_VMs.sh
+CREATE_VM_SCRIPT=${VM_DIR}/create_VMs.sh
 > $CREATE_VM_SCRIPT
+
+# check if the installation ISO is available 
+[[ -r /var/lib/libvirt/images/$ISO_MEDIA ]] || (echo "ERROR: No installation ISO: /var/lib/libvirt/images/${ISO_MEDIA}";exit 1)
 
 for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
 do
@@ -123,39 +140,32 @@ echo "virt-install \
 --noautoconsole \
 --os-variant ${OS_VARIANT} \
 --location /var/lib/libvirt/images/$ISO_MEDIA \
---initrd-inject=/VM/autoyast_${VM_NAME_BASE}${NODE_NUMBER}.xml \
---extra-args kernel_args=\"console=/dev/ttyS0 autoyast=file://VM/autoyast_${VM_NAME_BASE}${NODE_NUMBER}.xml\" " >> $CREATE_VM_SCRIPT
+--initrd-inject=${VM_DIR}/autoyast_${VM_NAME_BASE}${NODE_NUMBER}.xml \
+--extra-args kernel_args=\"console=/dev/ttyS0 autoyast=file:/${VM_DIR}/autoyast_${VM_NAME_BASE}${NODE_NUMBER}.xml\" " >> $CREATE_VM_SCRIPT
 done
 chmod +x $CREATE_VM_SCRIPT
-
-# to manually check if script is using correct arguments 
-cat $CREATE_VM_SCRIPT
-
 source $CREATE_VM_SCRIPT
 
 # checking while all VM shut off
 while sleep 1;do runningvms=$(virsh list|tail -n +3);if [[ $runningvms == '' ]];then echo 'NO VMs running...';break;fi;done
 
-# after adding disks, start VMs
-qemu-img create -f raw /VM/${VM_NAME_BASE}2-osd-1 30G
-qemu-img create -f raw /VM/${VM_NAME_BASE}3-osd-1 30G
-qemu-img create -f raw /VM/${VM_NAME_BASE}4-osd-1 30G
-qemu-img create -f raw /VM/${VM_NAME_BASE}5-osd-1 30G
-
-# virsh attach-disk ${VM_NAME_BASE}1 /VM/${VM_NAME_BASE}1-osd-1 vdb --config --cache none
-virsh attach-disk ${VM_NAME_BASE}2 /VM/${VM_NAME_BASE}2-osd-1 sdb --config --cache none 
-virsh attach-disk ${VM_NAME_BASE}3 /VM/${VM_NAME_BASE}3-osd-1 sdb --config --cache none
-virsh attach-disk ${VM_NAME_BASE}4 /VM/${VM_NAME_BASE}4-osd-1 sdb --config --cache none
-virsh attach-disk ${VM_NAME_BASE}5 /VM/${VM_NAME_BASE}5-osd-1 sdb --config --cache none
-
-qemu-img create -f raw /VM/${VM_NAME_BASE}4-osd-2 25G
-qemu-img create -f raw /VM/${VM_NAME_BASE}5-osd-2 25G
-qemu-img create -f raw /VM/${VM_NAME_BASE}5-osd-3 40G
-
-virsh attach-disk ${VM_NAME_BASE}4 /VM/${VM_NAME_BASE}4-osd-2 sdc --config --cache none
-virsh attach-disk ${VM_NAME_BASE}5 /VM/${VM_NAME_BASE}5-osd-2 sdc --config --cache none
-virsh attach-disk ${VM_NAME_BASE}5 /VM/${VM_NAME_BASE}5-osd-3 sdd --config --cache none
-
+# TODO make it so that custom number of disks and their size can be set in some config file 
+# TODO make it for the variable number of VMs
+# adding disks to VMs
+qemu-img create -f raw ${VM_DIR}/${VM_NAME_BASE}2-osd-1 30G
+qemu-img create -f raw ${VM_DIR}/${VM_NAME_BASE}3-osd-1 30G
+qemu-img create -f raw ${VM_DIR}/${VM_NAME_BASE}4-osd-1 30G
+qemu-img create -f raw ${VM_DIR}/${VM_NAME_BASE}5-osd-1 30G
+qemu-img create -f raw ${VM_DIR}/${VM_NAME_BASE}4-osd-2 25G
+qemu-img create -f raw ${VM_DIR}/${VM_NAME_BASE}5-osd-2 25G
+qemu-img create -f raw ${VM_DIR}/${VM_NAME_BASE}5-osd-3 40G
+virsh attach-disk ${VM_NAME_BASE}2 ${VM_DIR}/${VM_NAME_BASE}2-osd-1 sdb --config --cache none 
+virsh attach-disk ${VM_NAME_BASE}3 ${VM_DIR}/${VM_NAME_BASE}3-osd-1 sdb --config --cache none
+virsh attach-disk ${VM_NAME_BASE}4 ${VM_DIR}/${VM_NAME_BASE}4-osd-1 sdb --config --cache none
+virsh attach-disk ${VM_NAME_BASE}5 ${VM_DIR}/${VM_NAME_BASE}5-osd-1 sdb --config --cache none
+virsh attach-disk ${VM_NAME_BASE}4 ${VM_DIR}/${VM_NAME_BASE}4-osd-2 sdc --config --cache none
+virsh attach-disk ${VM_NAME_BASE}5 ${VM_DIR}/${VM_NAME_BASE}5-osd-2 sdc --config --cache none
+virsh attach-disk ${VM_NAME_BASE}5 ${VM_DIR}/${VM_NAME_BASE}5-osd-3 sdd --config --cache none
 # start all VMs
 virsh start ${VM_NAME_BASE}1
 virsh start ${VM_NAME_BASE}2
@@ -170,11 +180,11 @@ sleep 300
 # PREPARING SSH PASSWRODLESS EXECUTION
 # check if hosts file is ok
 grep ${VM_NAME_BASE} /etc/hosts >/dev/null 2>&1 || echo "\
-${VMNET_IP_BASE}151    ${VM_NAME_BASE}1.qatest ${VM_NAME_BASE}1
-${VMNET_IP_BASE}152    ${VM_NAME_BASE}2.qatest ${VM_NAME_BASE}2
-${VMNET_IP_BASE}153    ${VM_NAME_BASE}3.qatest ${VM_NAME_BASE}3
-${VMNET_IP_BASE}154    ${VM_NAME_BASE}4.qatest ${VM_NAME_BASE}4
-${VMNET_IP_BASE}155    ${VM_NAME_BASE}5.qatest ${VM_NAME_BASE}5
+${VMNET_IP_BASE}.151    ${VM_NAME_BASE}1.qatest ${VM_NAME_BASE}1
+${VMNET_IP_BASE}.152    ${VM_NAME_BASE}2.qatest ${VM_NAME_BASE}2
+${VMNET_IP_BASE}.153    ${VM_NAME_BASE}3.qatest ${VM_NAME_BASE}3
+${VMNET_IP_BASE}.154    ${VM_NAME_BASE}4.qatest ${VM_NAME_BASE}4
+${VMNET_IP_BASE}.155    ${VM_NAME_BASE}5.qatest ${VM_NAME_BASE}5
 " >> /etc/hosts
 # before to login to the host, check local ssh options 
 sed -i '/StrictHostKeyChecking/c\StrictHostKeyChecking no' /etc/ssh/ssh_config
@@ -200,23 +210,28 @@ do
 	echo "Autoyast init script on host ${VM_NAME_BASE}${i} FINISHED."
 done
 
+
+function run_script_remotly {
+	# USAGE: run_script_remotly REMOTE_HOST_NAME SCRIPT_PATH
+	scp $2 ${1}:/tmp/
+	SCRIPT_NAME=${2##*/}
+	ssh ${1} /tmp/$SCRIPT_NAME
+}
+
 # COPY AND EXECUTE SCRIPT FOR PREPARING SALT MINIONS
-INIT_DIR=/root/init_scripts
 for (( i=2; i <=$VM_NUM; i++ )) # MINION NUMBERS ARE STARTING FROM 2
 do
-	ssh ${VM_NAME_BASE}${i} "[[ -d $INIT_DIR ]] || mkdir $INIT_DIR"
-	scp ${BASEDIR}/exploit/configure_salt_minion.sh ${VM_NAME_BASE}${i}:${INIT_DIR}/
-	ssh ${VM_NAME_BASE}${i} ${INIT_DIR}/configure_salt_minion.sh
+	run_script_remotly ${VM_NAME_BASE}${i} ${BASEDIR}/exploit/configure_salt_minion.sh
 done
 
 # COPY AND EXECUTE SCRIPT FOR PREPARING SALT MASTER
-ssh $MASTER "[[ -d $INIT_DIR ]] || mkdir $INIT_DIR"
-scp ${BASEDIR}/exploit/configure_salt_master.sh ${MASTER}:${INIT_DIR}/
-ssh $MASTER ${INIT_DIR}/configure_salt_master.sh
+run_script_remotly $MASTER ${BASEDIR}/exploit/configure_salt_master.sh
 
-# RUNNING THE TESTING FRAMEWORK: DEEPSEA QA SUITE			# TODO
-# Downloading DeepSea github repository 					# TODO
-# Running the test 											# TODO
+# git init 
+run_script_remotly $MASTER ${BASEDIR}/exploit/git_init.sh
+
+# RUN TEST SUITE  
+# EXAMPLE: cd /DeepSea/qa/;./suites/ceph-test/nfs_ha.sh
 
 # calculating script execution duration
 sript_end_time=$(date +%s)
