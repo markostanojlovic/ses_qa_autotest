@@ -1,9 +1,11 @@
 #!/bin/bash
 BASEDIR=$(pwd)
+echo $BASEDIR |grep DeepSea/qa || BASEDIR=$(find / -type d -name DeepSea)/qa
 source $BASEDIR/common/helper.sh
 
 RGW_NODE_fqdn=$(_get_fqdn_from_pillar_role rgw|tail -n 1) 	# choosing only one node to deploy HTTPS
 RGW_NODE=${RGW_NODE_fqdn%%\.*}
+[[ -z $RGW_NODE ]] && (echo "Couldn't find RGW node name."; exit 1)
 echo "RGW node for deploying https: " $RGW_NODE_fqdn
 # set a grain if needed to be used later
 salt $RGW_NODE_fqdn grains.setval RGW_HTTPS True
@@ -49,4 +51,10 @@ TEST_RESULT=$(curl --insecure https://${RGW_NODE})
 echo $TEST_RESULT|grep ListAllMyBucketsResult || (echo "Error: no result from curl get. NOT_OK."; exit 1)
 
 echo 'Result: OK'
+
+# # manually copy files:
+# cp /srv/salt/ceph/rgw/cert/rgw.pem /etc/ceph/rgw.pem
+# salt-cp -C 'I@roles:rgw' '/etc/ceph/rgw.pem' '/etc/ceph/'
+# # or manually execute sls file: 
+# salt -C 'I@roles:rgw' state.sls ceph.rgw.cert.init
 

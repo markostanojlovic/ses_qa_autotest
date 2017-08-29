@@ -230,8 +230,11 @@ run_script_remotly $MASTER ${BASEDIR}/exploit/configure_salt_master.sh
 # git init 
 run_script_remotly $MASTER ${BASEDIR}/exploit/git_init.sh
 
-# RUN TEST SUITE  
-# EXAMPLE: cd /DeepSea/qa/;./suites/ceph-test/nfs_ha.sh
+# RUN TEST
+ssh $MASTER "salt '*' grains.setval deepsea True"
+scp ${BASEDIR}/exploit/policy.cfg $MASTER:/tmp/
+run_script_remotly $MASTER ${BASEDIR}/ses_qa_scripts/cluster_deploy.sh
+run_script_remotly $MASTER ${BASEDIR}/ses_qa_scripts/rgw_https_deploy.sh
 
 # calculating script execution duration
 sript_end_time=$(date +%s)
