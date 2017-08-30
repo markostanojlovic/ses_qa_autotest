@@ -234,7 +234,10 @@ run_script_remotly $MASTER ${BASEDIR}/exploit/git_init.sh
 ssh $MASTER "salt '*' grains.setval deepsea True"
 scp ${BASEDIR}/exploit/policy.cfg $MASTER:/tmp/
 run_script_remotly $MASTER ${BASEDIR}/ses_qa_scripts/cluster_deploy.sh
-run_script_remotly $MASTER ${BASEDIR}/ses_qa_scripts/rgw_https_deploy.sh
+# run_script_remotly $MASTER ${BASEDIR}/ses_qa_scripts/rgw_https_deploy.sh
+LRBD_CONF_FILE=lrbd.conf_1tgt_2img_1portal_1pool.json
+scp ${BASEDIR}/exploit/${LRBD_CONF_FILE} $MASTER:/tmp/lrbd.conf.json
+run_script_remotly $MASTER ${BASEDIR}/ses_qa_scripts/igw_deploy.sh
 
 # calculating script execution duration
 sript_end_time=$(date +%s)

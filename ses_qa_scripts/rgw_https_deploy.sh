@@ -1,7 +1,8 @@
 #!/bin/bash
 BASEDIR=$(pwd)
 echo $BASEDIR |grep DeepSea/qa || BASEDIR=$(find / -type d -name DeepSea)/qa
-source $BASEDIR/common/helper.sh
+[[ -r ${BASEDIR}/common/helper.sh ]] || (echo 'Err: Missing source';exit 1)
+source ${BASEDIR}/common/helper.sh
 
 RGW_NODE_fqdn=$(_get_fqdn_from_pillar_role rgw|tail -n 1) 	# choosing only one node to deploy HTTPS
 RGW_NODE=${RGW_NODE_fqdn%%\.*}
