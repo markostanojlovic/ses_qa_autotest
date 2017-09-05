@@ -73,4 +73,5 @@ do
 	salt-cp $node $LRBD_CONF_FILE $LRBD_CONF_FILE
 	salt-cp $node $APPLY_NEW_IGW_CONFIG $APPLY_NEW_IGW_CONFIG
 	salt $node cmd.run "/bin/bash $APPLY_NEW_IGW_CONFIG"
+	
 done
