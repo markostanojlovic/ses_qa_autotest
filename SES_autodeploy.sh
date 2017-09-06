@@ -1,29 +1,33 @@
 #!/bin/bash
 #######################################################################################
-# Description: 	Script for creating VMs and depolying SES5 on them
+# Description: 	Script for creating VMs and depolying SES
 # Author:  		Marko Stanojlovic, QA Ceph @ SUSE Enterprise Storage
 # Contact: 		mstanojlovic@suse.com                                         
-# Last update:  23-Aug-2017
 # Usage: 		./SES_autodeploy.sh
 #
-# *** REQUIREMENTS: ***
-# - Script should be run as root 
-# - Directory where are the stored VM images is: $VM_DIR - hardcoded to /VM
-# - VM names are $VM_NAME_BASE and incrementing suffix number - hardcoded to "ses5node"
+# *** README: ***
+# - CHECK MANUAL CONFIG PART BEFORE TO RUN
+# - Run as root 
+# - Make sure there is SUFICIENT SPACE in $VM_DIR - place where VMs are stored
+# - VM names are $VM_NAME_BASE + incrementing suffix EXAMPLE: ses5node1, ses5node2, etc.
 # - SALT MASTER node is the first VM "ses5node1"
+# - IP addresses are starting from x.x.x.151
 #######################################################################################
 
 # ***** MANUAL CONFIG *****
 VM_DIR=/VM
-OSD_DEST_LIST='/VM /VM-images'
+OSD_DEST_LIST='/VM'
 VM_NAME_BASE='ses5node'
 OS_VARIANT=sles12sp3
-VM_NUM=5
-MAX_VM_NUM=100
+VM_NUM=5 						# *** DO NOT SET MORE THAN 50 ***
+VM_IP_START=151					# starting IP number to add to the base of IP EXAMPLE: 192.168.100.151
+CLIENT_NODE=ses5node5.qatest
 # ***** END MANUAL CONFIG *****
 
 BASEDIR=$(pwd)
 MASTER=${VM_NAME_BASE}1
+
+source ${BASEDIR}/exploit/helper.sh
 
 sript_start_time=$(date +%s)
 # Checking the REPO file 
@@ -39,6 +43,7 @@ ISO_MEDIA_SES_1=${ses_url1##*/}
 
 VM_HYP_DEF_GW=$(ip a s dev virbr1|grep inet|awk '{print $2}'| cut -d/ -f1)	# EXAMPLE: 192.168.100.1
 VMNET_IP_BASE=${VM_HYP_DEF_GW%\.*}											# EXAMPLE: 192.168.100
+MASTER_IP=${VMNET_IP_BASE}.${VM_IP_START}
 
 RSA_PUB_KEY_ROOT=~/.ssh/id_rsa.pub
 if [[ -r $RSA_PUB_KEY_ROOT ]]
@@ -52,9 +57,7 @@ fi
 VMNET_NAME=$(virsh net-list|grep active|tail -n 1|awk '{print $1}')
 [[ $VMNET_NAME ]] || (echo "ERROR: Couldn't find vmnet value.";exit 13) 	# exit if vmnet is empty string 
 
-###############################
 echo "Preparing the environment..." 
-###############################
 echo "Checking if VMs are existing..." 
 virsh list --all|grep ${VM_NAME_BASE} && NO_VMs=0 || NO_VMs=1
 if [[ $NO_VMs -eq 0 ]] 
@@ -71,9 +74,10 @@ rm ${VM_DIR}/${VM_NAME_BASE}*
 
 > ~/.ssh/known_hosts
 
-# Generate autoyast xml files:			
+# Generate autoyast xml files:		
+VM_IP=$VM_IP_START	# 151
 autoyast_seed=${BASEDIR}/exploit/autoyast_${VM_NAME_BASE}.xml
-[[ -r $autoyast_seed ]] || (echo "ERROR: Autoyast file missing. Exiting.";exit 15)
+[[ -r $autoyast_seed ]] || (echo "ERROR: Autoyast file missing. Exiting.";exit 1)
 for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
 do
 xmlfile=${VM_DIR}/autoyast_${VM_NAME_BASE}${NODE_NUMBER}.xml
@@ -84,7 +88,8 @@ sed -i "s|__ssh_pub_key__|${ssh_pub_key}|" $xmlfile
 sed -i "s|__os_http_link__|${os_url1}|" $xmlfile
 sed -i "s|__ses_http_link_1__|${ses_url1}|" $xmlfile
 sed -i "s/ses5hostnameses5/${VM_NAME_BASE}${NODE_NUMBER}/" $xmlfile
-sed -i "s/__VMNET_IP_BASE__xxxxx/${VMNET_IP_BASE}.15${NODE_NUMBER}/" $xmlfile
+sed -i "s/__VMNET_IP_BASE__xxxxx/${VMNET_IP_BASE}.${VM_IP}/" $xmlfile
+(( VM_IP+=1 ))
 done
 
 CREATE_VM_SCRIPT=${VM_DIR}/create_VMs.sh
@@ -149,35 +154,42 @@ do
 	echo "Autoyast init script on host ${VM_NAME_BASE}${i} FINISHED."
 done
 
-
-function run_script_remotly {
-	# USAGE: run_script_remotly REMOTE_HOST_NAME SCRIPT_PATH
-	scp $2 ${1}:/tmp/
-	SCRIPT_NAME=${2##*/}
-	ssh ${1} /tmp/$SCRIPT_NAME
-}
-
 # COPY AND EXECUTE SCRIPT FOR PREPARING SALT MINIONS
 for (( i=2; i <=$VM_NUM; i++ )) # MINION NUMBERS ARE STARTING FROM 2
 do
-	run_script_remotly ${VM_NAME_BASE}${i} ${BASEDIR}/exploit/configure_salt_minion.sh
+	_run_script_on_remote_host ${VM_NAME_BASE}${i} ${BASEDIR}/exploit/configure_salt_minion.sh $MASTER
 done
 # COPY AND EXECUTE SCRIPT FOR PREPARING SALT MASTER
-run_script_remotly $MASTER ${BASEDIR}/exploit/configure_salt_master.sh
+_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/configure_salt_master.sh $MASTER $MASTER_IP
 # git init 
-run_script_remotly $MASTER ${BASEDIR}/exploit/git_init.sh
+_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/git_init.sh 
+
+#####################################################################################
+#####################################################################################
+#####################################################################################
+
+set -ex
 
 # RUN TEST
+scp -r ${BASEDIR}/ $MASTER:~/
 scp ${BASEDIR}/exploit/policy.cfg $MASTER:/tmp/
-run_script_remotly $MASTER ${BASEDIR}/ses_qa_scripts/cluster_deploy.sh
+_run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/cluster_deploy.sh
+_run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/basic_checks.sh
+_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/prepare_client_node.sh $CLIENT_NODE
+_run_command_on_remote_host $MASTER "~/ses_qa_autotest/ses_qa_scripts/client_tests.sh $CLIENT_NODE"
 
-# run_script_remotly $MASTER ${BASEDIR}/ses_qa_scripts/rgw_https_deploy.sh
+set +ex
 
-# LRBD_CONF_FILE=lrbd.conf_2tgt_3img_2portal_2pool.json
-# scp ${BASEDIR}/exploit/${LRBD_CONF_FILE} $MASTER:/tmp/lrbd.conf.json
-# run_script_remotly $MASTER ${BASEDIR}/ses_qa_scripts/igw_deploy.sh
+#####################################################################################
+#####################################################################################
+#####################################################################################
+
+echo "Logs can be found: "
+echo
+
+ls -l /tmp/|grep .log_
 
 # calculating script execution duration
 sript_end_time=$(date +%s)
 script_runtime=$(((sript_end_time-sript_start_time)/60))
-echo "Runtime in minutes: " $script_runtime
+echo;echo "Runtime in minutes: " $script_runtime

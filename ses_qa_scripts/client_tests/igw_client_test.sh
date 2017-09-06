@@ -10,7 +10,7 @@ iscsiadm -m discovery --type=st --portal=$iSCSI_PORTAL
 result=$(iscsiadm -m discovery --type=st --portal=$iSCSI_PORTAL|tail -n 1);target=iqn${result#*iqn};echo $target
 iscsiadm -m node -n $target --login
 sleep 1
-new_disk=$(dmesg|tail -n 1|grep 'Attached SCSI disk'|awk '{print $4}'|tr -d '[]');echo $new_disk 	
+new_disk=$(dmesg|tail -n 1|grep 'Attached SCSI disk'|awk '{print $5}'|tr -d '[]');echo $new_disk 	
 # TODO: what if more than 1 disk is exported???
 # check if the disk is already formated
 lsblk|grep ${new_disk}1 || ( sgdisk --largest-new=1 /dev/$new_disk; mkfs.xfs /dev/${new_disk}1 -f )

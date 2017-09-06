@@ -6,15 +6,17 @@
 # - RBD
 # - RGW
 
-# Requisites is run from Salt MASTER node:
+# README:
+# 	- *** ONLY WORKING FOR SLES OS CLIENTS ***
+# 	- Run as root from MASTER 
 # 	- ssh paswrodless access to client server from MASTER
-# 	add id_rsa.pub in the ~/.ssh/authorized_hosts
-
-
+# 	@MASTER: 	ssh-keygen -t rsa -N "" -f ~/.ssh/id_rsa; cat ~/.ssh/id_rsa.pub
+# 				sed -i '/StrictHostKeyChecking/c\StrictHostKeyChecking no' /etc/ssh/ssh_config
 # USAGE: 
 # ./ses_qa_scripts/clients.sh client_host_name_or_ip
+
 set -ex
-BASEDIR=$(pwd)
+BASEDIR=$(find / -type d -name ses_qa_autotest)
 source ${BASEDIR}/exploit/helper.sh
 
 REMOTE_HOST_IP=$1
@@ -67,3 +69,5 @@ do
 	TCP_PORT=$(salt $host cmd.run 'ss -n -l -p '|grep tcp|grep radosgw|awk '{print $5}'|tr -d '*:')
 	_run_script_on_remote_host $REMOTE_HOST_IP ${BASEDIR}/ses_qa_scripts/client_tests/rgw_client_test.sh $host $TCP_PORT
 done
+
+echo "Result: OK"

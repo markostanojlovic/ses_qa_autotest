@@ -68,10 +68,7 @@ ceph osd erasure-code-profile ls
 ceph osd erasure-code-profile get default 
 ceph osd erasure-code-profile set EC-temp-pool	
 
-# ceph osd erasure-code-profile set EC-temp-pool ruleset-failure-domain=osd k=4 m=2 --force
-ceph osd erasure-code-profile set EC-temp-pool crush-failure-domain=osd k=4 m=2 
 ceph osd erasure-code-profile set EC-temp-pool crush-failure-domain=osd k=4 m=2 --force
-
 ceph osd erasure-code-profile get EC-temp-pool
 
 ceph osd pool create ECtemppool 8 8  erasure EC-temp-pool
@@ -90,5 +87,4 @@ rbd create rbd-test/test_img_2 --size 10240
 rados df -p rbd-test
 rados ls -p rbd-test -
 
-
-
+echo "Result: OK"
