@@ -13,10 +13,11 @@
 # - SALT MASTER node is the first VM "ses5node1"
 # - IP addresses are starting from x.x.x.151
 #######################################################################################
+set -ex
 
 # ***** MANUAL CONFIG *****
 VM_DIR=/VM
-OSD_DEST_LIST='/VM'
+OSD_DEST_LIST='/VM /VM-disk-c /VM-disk-d /VM-disk-f /VM-disk-g'
 VM_NAME_BASE='ses5node'
 OS_VARIANT=sles12sp3
 VM_NUM=5 						# *** DO NOT SET MORE THAN 50 ***
@@ -41,8 +42,10 @@ ses_url1=${link[2]}
 ISO_MEDIA=${os_url1##*/}
 ISO_MEDIA_SES_1=${ses_url1##*/}
 
-VM_HYP_DEF_GW=$(ip a s dev virbr1|grep inet|awk '{print $2}'| cut -d/ -f1)	# EXAMPLE: 192.168.100.1
+VNET_IF=$(ip a |grep virbr.\:|awk -F ":" '{print $2}'|tr -d ' ')
+VM_HYP_DEF_GW=$(ip a s dev $VNET_IF|grep 'inet '|awk '{print $2}'| cut -d/ -f1)	# EXAMPLE: 192.168.100.1
 VMNET_IP_BASE=${VM_HYP_DEF_GW%\.*}											# EXAMPLE: 192.168.100
+[[ -n $VMNET_IP_BASE ]] && echo 'VMNET_IP_BASE is: ' $VMNET_IP_BASE || (echo 'VMNET_IP_BASE is empty string.';exit 1)
 MASTER_IP=${VMNET_IP_BASE}.${VM_IP_START}
 
 RSA_PUB_KEY_ROOT=~/.ssh/id_rsa.pub
@@ -64,19 +67,19 @@ if [[ $NO_VMs -eq 0 ]]
 then
 for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
 do
-	virsh destroy ${VM_NAME_BASE}${NODE_NUMBER} 2>/dev/null 	# Force stop VMs (even if they are not running)
-	virsh undefine ${VM_NAME_BASE}${NODE_NUMBER} --nvram 		# Undefine VMs (--nvram option for aarch64)
+	virsh destroy ${VM_NAME_BASE}${NODE_NUMBER} || echo "VM not running..." 
+	virsh undefine ${VM_NAME_BASE}${NODE_NUMBER} --nvram || echo "No VM..." 		# Undefine VMs (--nvram option for aarch64)
 done
 fi
 
 # Delete disk images 
-rm ${VM_DIR}/${VM_NAME_BASE}*
+rm ${VM_DIR}/${VM_NAME_BASE}* || echo 'No VMs'
 
 > ~/.ssh/known_hosts
 
 # Generate autoyast xml files:		
 VM_IP=$VM_IP_START	# 151
-autoyast_seed=${BASEDIR}/exploit/autoyast_${VM_NAME_BASE}.xml
+autoyast_seed=${BASEDIR}/exploit/autoyast_${VM_NAME_BASE}_aarch.xml
 [[ -r $autoyast_seed ]] || (echo "ERROR: Autoyast file missing. Exiting.";exit 1)
 for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
 do
