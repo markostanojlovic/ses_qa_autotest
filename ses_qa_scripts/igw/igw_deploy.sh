@@ -2,6 +2,7 @@
 # Deployment of iSCSI gateway
 # This script should be run from master node 
 # Template lrbd config file should be copied to /tmp/lrbd.conf.json
+set -ex
 
 function _get_fqdn_from_pillar_role {
 	# input argument is salt grain key
@@ -36,7 +37,9 @@ echo $PORTAL_IP_ADDR1
 
 # creating pools and rbd images:
 ceph osd pool create $RBD_POOL1_NAME 8 8 
+ceph osd pool application enable $RBD_POOL1_NAME rbd
 ceph osd pool create $RBD_POOL2_NAME 8 8 
+ceph osd pool application enable $RBD_POOL2_NAME rbd
 
 rbd -p ${RBD_POOL1_NAME} ls|grep ${RBD_POOL1_IMG_1} || rbd create ${RBD_POOL1_NAME}/${RBD_POOL1_IMG_1} --size=1G
 rbd -p ${RBD_POOL1_NAME} ls|grep ${RBD_POOL1_IMG_2} || rbd create ${RBD_POOL1_NAME}/${RBD_POOL1_IMG_2} --size=2G
@@ -75,3 +78,4 @@ do
 	salt $node cmd.run "/bin/bash $APPLY_NEW_IGW_CONFIG"
 	
 done
+echo "Result: OK"

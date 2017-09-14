@@ -2,35 +2,22 @@
 #######################################################################################
 # Description: 	Script for creating VMs and depolying SES
 # Author:  		Marko Stanojlovic, QA Ceph @ SUSE Enterprise Storage
-# Contact: 		mstanojlovic@suse.com                                         
+# Contact: 		mstanojlovic@suse.com
 # Usage: 		./SES_autodeploy.sh
 #
 # *** README: ***
 # - CHECK MANUAL CONFIG PART BEFORE TO RUN
-# - Run as root 
+# - Run as root
 # - Make sure there is SUFICIENT SPACE in $VM_DIR - place where VMs are stored
 # - VM names are $VM_NAME_BASE + incrementing suffix EXAMPLE: ses5node1, ses5node2, etc.
 # - SALT MASTER node is the first VM "ses5node1"
 # - IP addresses are starting from x.x.x.151
 #######################################################################################
 
-# ***** MANUAL CONFIG *****
-VM_DIR=/VM
-OSD_DEST_LIST='/VM'
-VM_NAME_BASE='ses5node'
-OS_VARIANT=sles12sp3
-VM_NUM=5 						# *** DO NOT SET MORE THAN 50 ***
-VM_IP_START=151					# starting IP number to add to the base of IP EXAMPLE: 192.168.100.151
-CLIENT_NODE=ses5node5.qatest
-# ***** END MANUAL CONFIG *****
-
-BASEDIR=$(pwd)
-MASTER=${VM_NAME_BASE}1
-
-source ${BASEDIR}/exploit/helper.sh
+source ./exploit/CONFIG
 
 sript_start_time=$(date +%s)
-# Checking the REPO file 
+# Checking the REPO file
 REPO_FILE=${BASEDIR}/exploit/REPO_ISO_URLs
 [[ -r $REPO_FILE ]] || (echo "ERROR: No REPO file."; exit 1)
 lin_num=1
@@ -41,40 +28,43 @@ ses_url1=${link[2]}
 ISO_MEDIA=${os_url1##*/}
 ISO_MEDIA_SES_1=${ses_url1##*/}
 
-VM_HYP_DEF_GW=$(ip a s dev virbr1|grep inet|awk '{print $2}'| cut -d/ -f1)	# EXAMPLE: 192.168.100.1
+VNET_IF=$(ip a |grep virbr.\:|awk -F ":" '{print $2}'|tr -d ' ')
+# VNET_IF=$(virsh dumpxml ses5node1 |grep bridge|awk -F "'" '{print $4}')
+VM_HYP_DEF_GW=$(ip a s dev $VNET_IF|grep 'inet '|awk '{print $2}'| cut -d/ -f1)	# EXAMPLE: 192.168.100.1
 VMNET_IP_BASE=${VM_HYP_DEF_GW%\.*}											# EXAMPLE: 192.168.100
+[[ -z $VMNET_IP_BASE ]] && echo 'VMNET_IP_BASE is: ' $VMNET_IP_BASE || (echo 'VMNET_IP_BASE is empty string.';exit 1)
 MASTER_IP=${VMNET_IP_BASE}.${VM_IP_START}
 
 RSA_PUB_KEY_ROOT=~/.ssh/id_rsa.pub
 if [[ -r $RSA_PUB_KEY_ROOT ]]
-	then 
+	then
 	echo "RSA key exists."
 	ssh_pub_key=$(cat $RSA_PUB_KEY_ROOT)
-else 
+else
 	echo "Missing RSA key."
 fi
 
 VMNET_NAME=$(virsh net-list|grep active|tail -n 1|awk '{print $1}')
-[[ $VMNET_NAME ]] || (echo "ERROR: Couldn't find vmnet value.";exit 13) 	# exit if vmnet is empty string 
+[[ $VMNET_NAME ]] || (echo "ERROR: Couldn't find vmnet value.";exit 13) 	# exit if vmnet is empty string
 
-echo "Preparing the environment..." 
-echo "Checking if VMs are existing..." 
+echo "Preparing the environment..."
+echo "Checking if VMs are existing..."
 virsh list --all|grep ${VM_NAME_BASE} && NO_VMs=0 || NO_VMs=1
-if [[ $NO_VMs -eq 0 ]] 
+if [[ $NO_VMs -eq 0 ]]
 then
 for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
 do
-	virsh destroy ${VM_NAME_BASE}${NODE_NUMBER} 2>/dev/null 	# Force stop VMs (even if they are not running)
-	virsh undefine ${VM_NAME_BASE}${NODE_NUMBER} --nvram 		# Undefine VMs (--nvram option for aarch64)
+	virsh destroy ${VM_NAME_BASE}${NODE_NUMBER} || echo "VM not running..." 	# Force stop VMs (even if they are not running)
+	virsh undefine ${VM_NAME_BASE}${NODE_NUMBER} --nvram || echo "No VM..."		# Undefine VMs (--nvram option for aarch64)
 done
 fi
 
-# Delete disk images 
+# Delete disk images
 rm ${VM_DIR}/${VM_NAME_BASE}*
 
 > ~/.ssh/known_hosts
 
-# Generate autoyast xml files:		
+# Generate autoyast xml files:
 VM_IP=$VM_IP_START	# 151
 autoyast_seed=${BASEDIR}/exploit/autoyast_${VM_NAME_BASE}.xml
 [[ -r $autoyast_seed ]] || (echo "ERROR: Autoyast file missing. Exiting.";exit 1)
@@ -84,7 +74,7 @@ xmlfile=${VM_DIR}/autoyast_${VM_NAME_BASE}${NODE_NUMBER}.xml
 cp $autoyast_seed $xmlfile
 sed -i "s/__ip_default_route__/${VM_HYP_DEF_GW}/" $xmlfile
 sed -i "s/__ip_nameserver__/${VM_HYP_DEF_GW}/" $xmlfile
-sed -i "s|__ssh_pub_key__|${ssh_pub_key}|" $xmlfile 					
+sed -i "s|__ssh_pub_key__|${ssh_pub_key}|" $xmlfile
 sed -i "s|__os_http_link__|${os_url1}|" $xmlfile
 sed -i "s|__ses_http_link_1__|${ses_url1}|" $xmlfile
 sed -i "s/ses5hostnameses5/${VM_NAME_BASE}${NODE_NUMBER}/" $xmlfile
@@ -95,7 +85,7 @@ done
 CREATE_VM_SCRIPT=${VM_DIR}/create_VMs.sh
 > $CREATE_VM_SCRIPT
 
-# check if the installation ISO is available 
+# check if the installation ISO is available
 [[ -r /var/lib/libvirt/images/$ISO_MEDIA ]] || (echo "ERROR: No installation ISO: /var/lib/libvirt/images/${ISO_MEDIA}";exit 1)
 
 for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
@@ -125,18 +115,18 @@ while sleep 1;do runningvms=$(virsh list|tail -n +3);if [[ $runningvms == '' ]];
 # START ALL VMs
 for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
 do
-	virsh start ${VM_NAME_BASE}${NODE_NUMBER} 
-done 
+	virsh start ${VM_NAME_BASE}${NODE_NUMBER}
+done
 
 # wait 5min for autoyast to complete
 echo "Waiting for autoyast init script to complete... "
 sleep 300
 
 # PREPARING SSH PASSWRODLESS EXECUTION
-# before to login to the host, check local ssh options 
+# before to login to the host, check local ssh options
 sed -i '/StrictHostKeyChecking/c\StrictHostKeyChecking no' /etc/ssh/ssh_config
 
-# Waiting for autoyast script to be completed 
+# Waiting for autoyast script to be completed
 TIMEOUT_COUNTER=1
 for (( i=1; i <=$VM_NUM; i++ ))
 do
@@ -161,14 +151,12 @@ do
 done
 # COPY AND EXECUTE SCRIPT FOR PREPARING SALT MASTER
 _run_script_on_remote_host $MASTER ${BASEDIR}/exploit/configure_salt_master.sh $MASTER $MASTER_IP
-# git init 
-_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/git_init.sh 
+# git init
+_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/git_init.sh
 
 #####################################################################################
 #####################################################################################
 #####################################################################################
-
-set -ex
 
 # RUN TEST
 scp -r ${BASEDIR}/ $MASTER:~/
@@ -176,9 +164,8 @@ scp ${BASEDIR}/exploit/policy.cfg $MASTER:/tmp/
 _run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/cluster_deploy.sh
 _run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/basic_checks.sh
 _run_script_on_remote_host $MASTER ${BASEDIR}/exploit/prepare_client_node.sh $CLIENT_NODE
+sleep 2
 _run_command_on_remote_host $MASTER "~/ses_qa_autotest/ses_qa_scripts/client_tests.sh $CLIENT_NODE"
-
-set +ex
 
 #####################################################################################
 #####################################################################################
