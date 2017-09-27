@@ -64,6 +64,7 @@ rm ${VM_DIR}/${VM_NAME_BASE}*
 
 > ~/.ssh/known_hosts
 
+
 # Generate autoyast xml files:
 VM_IP=$VM_IP_START	# 151
 autoyast_seed=${BASEDIR}/exploit/autoyast_${VM_NAME_BASE}.xml
@@ -79,8 +80,12 @@ sed -i "s|__os_http_link__|${os_url1}|" $xmlfile
 sed -i "s|__ses_http_link_1__|${ses_url1}|" $xmlfile
 sed -i "s/ses5hostnameses5/${VM_NAME_BASE}${NODE_NUMBER}/" $xmlfile
 sed -i "s/__VMNET_IP_BASE__xxxxx/${VMNET_IP_BASE}.${VM_IP}/" $xmlfile
+echo ${VMNET_IP_BASE}.${VM_IP} ${VM_NAME_BASE}${NODE_NUMBER}.${DOMAIN} ${VM_NAME_BASE}${NODE_NUMBER} >> /tmp/hosts_file
 (( VM_IP+=1 ))
 done
+
+# Add hostnames and IP addresses in the hosts file of the VM host
+cat /etc/hosts|grep $VMNET_IP_BASE || cat /tmp/hosts_file >> /etc/hosts
 
 CREATE_VM_SCRIPT=${VM_DIR}/create_VMs.sh
 > $CREATE_VM_SCRIPT
@@ -93,7 +98,7 @@ do
 echo "virt-install \
 --name ${VM_NAME_BASE}$NODE_NUMBER \
 --memory 1024 \
---disk path=/VM/${VM_NAME_BASE}$NODE_NUMBER.qcow2,size=20 \
+--disk path=${VM_DIR}/${VM_NAME_BASE}$NODE_NUMBER.qcow2,size=20 \
 --vcpus 1 \
 --network network=${VMNET_NAME},model=virtio \
 --os-type linux \
@@ -106,7 +111,7 @@ done
 chmod +x $CREATE_VM_SCRIPT
 source $CREATE_VM_SCRIPT
 
-# checking while all VM shut off
+# checking while all VM shut off BUG: if some non-SES VM is running, it is infinite loop
 while sleep 1;do runningvms=$(virsh list|tail -n +3);if [[ $runningvms == '' ]];then echo 'NO VMs running...';break;fi;done
 
 # ADDING OSD DISK to VMs
@@ -142,6 +147,13 @@ do
 		exit 1
 	fi
 	echo "Autoyast init script on host ${VM_NAME_BASE}${i} FINISHED."
+done
+
+# add hosts file entries to each VM
+for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
+do
+	scp /tmp/hosts_file ${VM_NAME_BASE}${NODE_NUMBER}:/tmp/
+	ssh ${VM_NAME_BASE}${NODE_NUMBER} "cat /tmp/hosts_file >> /etc/hosts"
 done
 
 # COPY AND EXECUTE SCRIPT FOR PREPARING SALT MINIONS
