@@ -85,7 +85,7 @@ echo ${VMNET_IP_BASE}.${VM_IP} ${VM_NAME_BASE}${NODE_NUMBER}.${DOMAIN} ${VM_NAME
 done
 
 # Add hostnames and IP addresses in the hosts file of the VM host
-cat /etc/hosts|grep $VMNET_IP_BASE || cat /tmp/hosts_file >> /etc/hosts
+cat /etc/hosts|grep $VMNET_IP_BASE.${VM_NUM} || cat /tmp/hosts_file >> /etc/hosts
 
 CREATE_VM_SCRIPT=${VM_DIR}/create_VMs.sh
 > $CREATE_VM_SCRIPT
