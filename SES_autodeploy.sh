@@ -67,7 +67,7 @@ rm ${VM_DIR}/${VM_NAME_BASE}*
 
 # Generate autoyast xml files:
 VM_IP=$VM_IP_START	# 151
-autoyast_seed=${BASEDIR}/exploit/autoyast_${VM_NAME_BASE}.xml
+autoyast_seed=${BASEDIR}/exploit/autoyast_${VM_NAME_BASE}_aarch.xml
 [[ -r $autoyast_seed ]] || (echo "ERROR: Autoyast file missing. Exiting.";exit 1)
 for (( NODE_NUMBER=1; NODE_NUMBER <=$VM_NUM; NODE_NUMBER++ ))
 do
@@ -173,11 +173,19 @@ _run_script_on_remote_host $MASTER ${BASEDIR}/exploit/git_init.sh
 # RUN TEST
 scp -r ${BASEDIR}/ $MASTER:~/
 scp ${BASEDIR}/exploit/policy.cfg $MASTER:/tmp/
-_run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/cluster_deploy.sh
-_run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/basic_checks.sh
-_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/prepare_client_node.sh $CLIENT_NODE
-sleep 2
-_run_command_on_remote_host $MASTER "~/ses_qa_autotest/ses_qa_scripts/client_tests.sh $CLIENT_NODE"
+# REGISTER PRODUCTS IN SCC - SLES AND SES
+_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/SCC_registration.sh
+# ZYPPER UPGRADE
+_run_command_on_remote_host $MASTER "salt \* cmd.run 'zypper up -y'"
+# REBOOT OF NODES
+_run_command_on_remote_host $MASTER "salt --async \* cmd.run 'shutdown -r +1'"
+sleep 180
+
+#_run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/cluster_deploy.sh
+#_run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/basic_checks.sh
+#_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/prepare_client_node.sh $CLIENT_NODE
+#sleep 2
+#_run_command_on_remote_host $MASTER "~/ses_qa_autotest/ses_qa_scripts/client_tests.sh $CLIENT_NODE"
 
 #####################################################################################
 #####################################################################################
