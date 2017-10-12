@@ -176,10 +176,26 @@ set -ex
 # RUN TEST
 scp -r ${BASEDIR}/ $MASTER:~/
 scp ${BASEDIR}/exploit/policy.cfg $MASTER:/tmp/
+<<<<<<< HEAD
 _run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/cluster_deploy.sh
 _run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/basic_checks.sh
 _run_script_on_remote_host $MASTER ${BASEDIR}/exploit/prepare_client_node.sh $CLIENT_NODE
 _run_command_on_remote_host $MASTER "~/ses_qa_autotest/ses_qa_scripts/client_tests.sh $CLIENT_NODE"
+=======
+# REGISTER PRODUCTS IN SCC - SLES AND SES
+_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/SCC_registration.sh
+# ZYPPER UPGRADE
+_run_command_on_remote_host $MASTER "salt \* cmd.run 'zypper up -y'"
+# REBOOT OF NODES
+_run_command_on_remote_host $MASTER "salt --async \* cmd.run 'shutdown -r +1'"
+sleep 180
+
+#_run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/cluster_deploy.sh
+#_run_script_on_remote_host $MASTER ${BASEDIR}/ses_qa_scripts/basic_checks.sh
+#_run_script_on_remote_host $MASTER ${BASEDIR}/exploit/prepare_client_node.sh $CLIENT_NODE
+#sleep 2
+#_run_command_on_remote_host $MASTER "~/ses_qa_autotest/ses_qa_scripts/client_tests.sh $CLIENT_NODE"
+>>>>>>> f6c5626... M14 - succ deploy
 
 set +ex
 
